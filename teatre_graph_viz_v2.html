@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>teatre_graph — Live Run Observatory</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2333; --border: #30363d;
+    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --amber: #d29922; --red: #f85149; --purple: #bc8cff; --cyan: #39c5cf;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "SF Mono", Menlo, Consolas, monospace; padding: 14px; }
+  h1 { font-size: 17px; margin-bottom: 2px; }
+  h1 .tag { color: var(--cyan); }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 12px; }
+  .live-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--dim); margin-right:5px; vertical-align:middle; }
+  .live-dot.on { background: var(--green); animation: blink 1.1s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+
+  /* ---- run controls ---- */
+  .runbar { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; background:var(--panel);
+            border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .runbar label { display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--dim); }
+  .runbar select, .runbar input[type=text] { background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 8px; font:inherit; font-size:13px; }
+  .runbar select:focus, .runbar input[type=text]:focus { outline:none; border-color:var(--accent); }
+  .runbar .chk { flex-direction:row; align-items:center; gap:6px; font-size:13px; color:var(--text); padding-bottom:7px; }
+  .runbar .acts { display:flex; gap:8px; margin-left:auto; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #1f6feb; border-color: #1f6feb; }
+  button.danger { background:#6e1610; border-color:#b6231b; }
+  button:disabled { opacity:.4; cursor:default; }
+  .status { font-size:12px; color:var(--dim); margin-left:auto; align-self:center; min-width:240px; text-align:right; }
+  .status b { color:var(--accent); }
+  .status .ok { color:var(--green); } .status .err { color:var(--red); }
+
+  .layout { display: grid; grid-template-columns: minmax(560px, 1.15fr) minmax(420px, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 8px; }
+  .card.side-panel { display: flex; flex-direction: column; height: calc(100vh - 190px); min-height: 480px; }
+  svg { width: 100%; height: auto; display: block; }
+
+  /* ---- graph styling (same topology as the static replay) ---- */
+  .node rect, .node circle { fill: #21262d; stroke: #444c56; stroke-width: 1.5; transition: all .25s; }
+  .node text { fill: var(--text); font-size: 13px; font-family: inherit; }
+  .node .sublabel { fill: var(--dim); font-size: 9.5px; }
+  .node.small text { font-size: 10px; }
+  .node { cursor: pointer; }
+  .node:hover rect, .node:hover circle { stroke: var(--accent); }
+  .node.active rect, .node.active circle { fill: #0c2d6b; stroke: var(--accent); stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(88,166,255,.7)); }
+  .node.done rect, .node.done circle { fill: #10291a; stroke: var(--green); }
+  .node.det rect { fill: #10291a; stroke: var(--green); }
+  .node.modelpath rect { fill: #2d2000; stroke: var(--amber); }
+  .node.err rect, .node.err circle { fill: #3d0d0a; stroke: var(--red); }
+  .node.failed rect, .node.failed circle { fill: #2b1210; stroke: var(--red); stroke-width: 2.5; }
+  .node.dormant { opacity: .28; }
+  .endpoint circle { fill: #0d1117; }
+  .edge { stroke: #444c56; stroke-width: 1.8; fill: none; marker-end: url(#arrow); transition: all .25s; }
+  .edge.conditional { stroke-dasharray: 6 4; }
+  .edge.send { stroke: var(--purple); stroke-dasharray: 3 3; }
+  .edge.active { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 4px rgba(88,166,255,.8)); animation: flow 1s linear infinite; }
+  .edge.taken { stroke: var(--green); stroke-width: 2.5; }
+  .edge.untaken { opacity: .25; }
+  @keyframes flow { to { stroke-dashoffset: -20; } }
+  .edgelabel { fill: var(--dim); font-size: 10px; font-family: inherit; }
+  .edgelabel.active { fill: var(--accent); }
+  .band { fill: rgba(188,140,255,.06); stroke: rgba(188,140,255,.35); stroke-dasharray: 4 4; rx: 8; }
+  .bandlabel { fill: var(--purple); font-size: 10px; }
+
+  /* ---- right panel ---- */
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tabs button { border-radius: 6px 6px 0 0; padding: 5px 12px; font-size: 12px; }
+  .tabs button.on { background: #1f6feb; border-color: #1f6feb; }
+  .tabpane { display: none; flex: 1 1 0; min-height: 0; overflow: auto; }
+  .tabpane.on { display: flex; flex-direction: column; }
+  pre.json { font-size: 11.5px; white-space: pre-wrap; word-break: break-word; flex: 1 1 0; min-height: 0; overflow: auto; }
+  .json .k { color: var(--accent); } .json .s { color: #a5d6ff; } .json .n { color: #f2cc60; }
+  .json .b { color: var(--purple); } .json .omit { color: var(--dim); font-style: italic; }
+  #log { font-size: 12px; }
+  #log .ln { padding: 2px 0; border-bottom: 1px solid #21262d; }
+  #log .stage { color: var(--cyan); font-weight: bold; margin-top: 6px; }
+  #log .warn { color: var(--amber); }
+  #log .ok { color: var(--green); }
+  #log .info { color: var(--dim); }
+  #log .send { color: var(--purple); }
+  #log .node { color: var(--accent); }
+  #detail { font-size: 12.5px; }
+  #detail h3 { color: var(--accent); font-size: 14px; margin-bottom: 6px; }
+  #detail .row { margin-bottom: 6px; }
+  #detail .k2 { color: var(--dim); }
+  #detail pre { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; white-space: pre-wrap; }
+  #summary div { padding: 4px 0; border-bottom: 1px solid #21262d; }
+  #summary .lab { color: var(--dim); }
+
+  /* ---- events tab ---- */
+  .eventsbar { display:flex; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid #21262d; }
+  .eventsbar span { font-size:11.5px; flex:1; }
+  .eventsbar button { font-size:11.5px; padding:3px 10px; }
+  table.evtable { width:100%; border-collapse:collapse; font-size:12px; }
+  table.evtable th { position:sticky; top:0; background:var(--panel2); color:var(--dim);
+    text-align:left; padding:4px 8px; border-bottom:1px solid var(--border); font-size:11px;
+    text-transform:uppercase; letter-spacing:.05em; }
+  table.evtable td { padding:4px 8px; border-bottom:1px solid #21262d; vertical-align:top; }
+  table.evtable tr:hover { background:#21262d; }
+  #evtable .lab { color:var(--dim); }
+
+  /* ---- help tab ---- */
+  #help h3 { color:var(--cyan); font-size:13px; margin:10px 0 4px; }
+  #help p { color:var(--text); font-size:12.5px; line-height:1.5; }
+  #help code { background:#0d1117; border:1px solid var(--border); border-radius:4px;
+    padding:1px 5px; font-size:12px; color:#a5d6ff; }
+  #help pre { background:#0d1117; border:1px solid var(--border); border-radius:6px;
+    padding:8px 10px; font-size:12px; white-space:pre-wrap; color:#a5d6ff; }
+  #help table { width:100%; border-collapse:collapse; font-size:12px; }
+  #help table td, #help table th { border:1px solid var(--border); padding:5px 8px; text-align:left; }
+  #help table th { background:var(--panel2); font-size:11px; text-transform:uppercase; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--dim); }
+  .legend span::before { content: "■ "; }
+  .legend .l-idle::before { color: #444c56; } .legend .l-active::before { color: var(--accent); }
+  .legend .l-done::before { color: var(--green); } .legend .l-det::before { color: var(--green); }
+  .legend .l-model::before { color: var(--amber); } .legend .l-send::before { color: var(--purple); }
+  .legend .l-err::before { color: var(--red); }
+  .stepnote { background: var(--panel2); border-left: 3px solid var(--cyan); border-radius: 0 8px 8px 0; padding: 8px 10px; font-size: 12.5px; margin-top: 10px; min-height: 54px; }
+  .stepnote b { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<h1>teatre_graph.py <span class="tag">— live run observatory</span></h1>
+<div class="sub"><span class="live-dot" id="livedot"></span><span id="subline">Idle — pick a period and start a real run. This page drives the actual LangGraph pipeline, not a replay.</span></div>
+<div id="filebanner" style="background:#6e1610;border:1px solid #b6231b;border-radius:8px;padding:8px 10px;font-size:12.5px;margin-bottom:10px;" hidden></div>
+
+<div class="runbar">
+  <label>Anul
+    <select id="selYear"></select>
+  </label>
+  <label>Luna
+    <select id="selMonth"></select>
+  </label>
+  <label>Backend
+    <select id="selBackend">
+      <option value="none">none (no model)</option>
+      <option value="ollama">ollama</option>
+      <option value="cerebras">cerebras</option>
+      <option value="mimo">mimo (MiMo-V2.5 · slower)</option>
+    </select>
+  </label>
+  <label>Model (opțional)
+    <input type="text" id="inpModel" placeholder="e.g. gpt-oss-120b">
+  </label>
+  <label class="chk"><input type="checkbox" id="chkResume"> resume interrupted run</label>
+  <div class="acts">
+    <button class="primary" id="btnStart">▶ Start run</button>
+    <button class="danger" id="btnAbort" disabled>■ Abort</button>
+  </div>
+  <div class="status" id="status">idle</div>
+</div>
+
+<div class="layout">
+  <!-- ============================ GRAPH ============================ -->
+  <div class="card">
+    <h2>Compiled graph topology (StateGraph)</h2>
+    <svg viewBox="0 0 980 760" id="canvas">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#444c56"/>
+        </marker>
+        <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#58a6ff"/>
+        </marker>
+        <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#3fb950"/>
+        </marker>
+        <marker id="arrowP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#bc8cff"/>
+        </marker>
+        <marker id="arrowR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#f85149"/>
+        </marker>
+      </defs>
+
+      <!-- fan-out band -->
+      <rect class="band" x="60" y="418" width="860" height="96" id="fanband" opacity="0"/>
+      <text class="bandlabel" x="72" y="434" id="fanbandlabel" opacity="0">superstep — all Send() workers run concurrently, then a barrier joins them</text>
+
+      <!-- edges (paths) -->
+      <path class="edge" id="e_start_preflight" d="M490,44 L490,72"/>
+      <path class="edge conditional" id="e_preflight_plan" d="M490,118 L490,162"/>
+      <path class="edge conditional" id="e_preflight_abort" d="M580,95 L740,95"/>
+      <path class="edge" id="e_abort_end" d="M820,72 L820,44"/>
+      <path class="edge" id="e_plan_fetch" d="M490,208 L490,247"/>
+      <path class="edge" id="e_fetch_diagnose" d="M490,293 L490,332"/>
+      <path class="edge send" id="e_diag_workers" d="M490,378 L490,440" style="opacity:.35"/>
+      <path class="edge conditional" id="e_diag_verify" d="M600,362 C 760,390 800,500 640,565" style="opacity:.35"/>
+      <g id="workerEdges"></g>
+      <path class="edge" id="e_verify_render" d="M490,598 L490,632"/>
+      <path class="edge" id="e_render_end" d="M490,678 L490,712"/>
+
+      <text class="edgelabel" id="lbl_plan" x="498" y="145">returns "plan"</text>
+      <text class="edgelabel" id="lbl_abort" x="600" y="88" opacity=".5">returns "abort" (not taken)</text>
+      <text class="edgelabel" id="lbl_send" x="498" y="410" opacity=".6">conditional edge returns list[Send]</text>
+
+      <!-- nodes -->
+      <g class="node endpoint" id="n_START" data-node="START">
+        <circle cx="490" cy="30" r="13"/><text x="512" y="34" class="sublabel">START</text>
+      </g>
+      <g class="node" id="n_preflight" data-node="preflight">
+        <rect x="400" y="72" width="180" height="46" rx="9"/>
+        <text x="490" y="91" text-anchor="middle">preflight</text>
+        <text x="490" y="107" text-anchor="middle" class="sublabel">T.preflight() · no model</text>
+      </g>
+      <g class="node" id="n_abort" data-node="abort" opacity=".55">
+        <rect x="740" y="72" width="160" height="46" rx="9"/>
+        <text x="820" y="91" text-anchor="middle">abort</text>
+        <text x="820" y="107" text-anchor="middle" class="sublabel">systemic failure only</text>
+      </g>
+      <g class="node endpoint" id="n_END2" data-node="END">
+        <circle cx="820" cy="30" r="13"/><text x="842" y="34" class="sublabel">END</text>
+      </g>
+      <g class="node" id="n_plan" data-node="plan">
+        <rect x="400" y="162" width="180" height="46" rx="9"/>
+        <text x="490" y="181" text-anchor="middle">plan</text>
+        <text x="490" y="197" text-anchor="middle" class="sublabel">institutions × months</text>
+      </g>
+      <g class="node" id="n_fetch" data-node="fetch">
+        <rect x="400" y="247" width="180" height="46" rx="9"/>
+        <text x="490" y="266" text-anchor="middle">fetch</text>
+        <text x="490" y="282" text-anchor="middle" class="sublabel">T.harvest() · curl pool + 1 browser</text>
+      </g>
+      <g class="node" id="n_diagnose" data-node="diagnose">
+        <rect x="400" y="332" width="180" height="46" rx="9"/>
+        <text x="490" y="351" text-anchor="middle">diagnose</text>
+        <text x="490" y="367" text-anchor="middle" class="sublabel">T.diagnose() · verdict table</text>
+      </g>
+      <g id="workers"></g>
+      <g class="node" id="n_verify" data-node="verify">
+        <rect x="400" y="552" width="180" height="46" rx="9"/>
+        <text x="490" y="571" text-anchor="middle">verify</text>
+        <text x="490" y="587" text-anchor="middle" class="sublabel">T.verify() · NEVER a model</text>
+      </g>
+      <g class="node" id="n_render" data-node="render">
+        <rect x="400" y="632" width="180" height="46" rx="9"/>
+        <text x="490" y="651" text-anchor="middle">render</text>
+        <text x="490" y="667" text-anchor="middle" class="sublabel">T.render() · xlsx + status</text>
+      </g>
+      <g class="node endpoint" id="n_END" data-node="END">
+        <circle cx="490" cy="726" r="13"/><text x="512" y="730" class="sublabel">END</text>
+      </g>
+    </svg>
+    <div class="legend">
+      <span class="l-idle">idle</span>
+      <span class="l-active">running now</span>
+      <span class="l-done">completed</span>
+      <span class="l-det">deterministic extract (no model)</span>
+      <span class="l-model">model rung / prompt written</span>
+      <span class="l-send">Send() edge</span>
+      <span class="l-err">node error / EXTRACT_FAILED outline</span>
+    </div>
+    <div class="stepnote" id="stepnote"><b>Waiting.</b> Choose a year + month above and press <b>Start run</b> — the graph animates as the real process executes.</div>
+  </div>
+
+  <!-- ============================ SIDE PANEL ============================ -->
+  <div class="card side-panel">
+    <div class="tabs">
+      <button id="tab-summary" class="on">Run</button>
+      <button id="tab-state">State</button>
+      <button id="tab-log">Event log</button>
+      <button id="tab-detail">Node detail</button>
+      <button id="tab-events">Events</button>
+      <button id="tab-help">Help</button>
+    </div>
+    <div class="tabpane on" id="pane-summary"><div id="summary"></div></div>
+    <div class="tabpane" id="pane-state"><pre class="json" id="statejson"></pre></div>
+    <div class="tabpane" id="pane-log"><div id="log"></div></div>
+    <div class="tabpane" id="pane-detail"><div id="detail"><span style="color:var(--dim)">Click a node in the graph…</span></div></div>
+    <div class="tabpane" id="pane-events">
+      <div class="eventsbar">
+        <span id="evmeta" style="color:var(--dim)">Loading…</span>
+        <button id="btnEvRefresh">↻ Refresh</button>
+      </div>
+      <table class="evtable" id="evtable"></table>
+    </div>
+    <div class="tabpane" id="pane-help"><div id="help"></div></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Live client for teatre_viz_server.py
+   Polls /api/state?since=SEQ and animates the graph from real events.
+   ===================================================================== */
+
+/* ---------- date controls ---------- */
+const now = new Date();
+const selYear = document.getElementById("selYear");
+const selMonth = document.getElementById("selMonth");
+const MONTHS = ["Ianuarie","Februarie","Martie","Aprilie","Mai","Iunie",
+  "Iulie","August","Septembrie","Octombrie","Noiembrie","Decembrie"];
+for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++) {
+  const o = document.createElement("option");
+  o.value = y; o.textContent = y;
+  if (y === now.getFullYear()) o.selected = true;
+  selYear.appendChild(o);
+}
+for (let m = 1; m <= 12; m++) {
+  const o = document.createElement("option");
+  o.value = String(m).padStart(2, "0"); o.textContent = MONTHS[m-1];
+  if (m === now.getMonth() + 1) o.selected = true;
+  selMonth.appendChild(o);
+}
+
+/* ---------- DOM helpers ---------- */
+const $ = id => document.getElementById(id);
+const svgNS = "http://www.w3.org/2000/svg";
+
+/* ---------- API base ----------
+   Served by the server: /api/* is same-origin.
+   Opened directly from disk (file://): bare "/api/state" would resolve to
+   file:///api/state, so talk to the server on localhost explicitly. The
+   server is CORS-open, so file:// pages may read and post. Port default 8123,
+   overridable with ?port=NNNN. */
+const qp = new URLSearchParams(location.search);
+const API_BASE = location.protocol === "file:"
+  ? "http://127.0.0.1:" + (qp.get("port") || "8123")
+  : "";
+(function fileModeBanner() {
+  if (location.protocol !== "file:") return;
+  const b = $("filebanner");
+  if (!b) return;
+  b.hidden = false;
+  b.innerHTML = "Opened directly from disk. This view talks to the live server at " +
+    "<code>" + API_BASE + "</code> (CORS-open). Start it with " +
+    "<code>python3 teatre_viz_server.py</code> from the project folder — " +
+    "or open <a style='color:var(--accent)' href='" + API_BASE + "/'>" + API_BASE + "/</a> " +
+    "instead for the same page served over HTTP.";
+})();
+
+/* ---------- worker nodes (rendered from the roster event) ---------- */
+const workerG = $("workers");
+const workerEdgesG = $("workerEdges");
+const WX0 = 82, WX1 = 898, WY = 452, WW = 66, WH = 44;
+let venueSlugs = [];
+
+function renderWorkers(venues) {
+  venueSlugs = venues.map(v => v.slug);
+  workerG.innerHTML = ""; workerEdgesG.innerHTML = "";
+  const N = venues.length;
+  if (N === 0) return;
+  const workerX = i => WX0 + i * (WX1 - WX0 - WW) / (N - 1);
+  venues.forEach((v, i) => {
+    const x = workerX(i);
+    const g = document.createElementNS(svgNS, "g");
+    g.setAttribute("class", "node small dormant");
+    g.setAttribute("id", "w_" + v.slug);
+    g.dataset.node = "extract_one:" + v.slug;
+    g.innerHTML =
+      `<rect x="${x}" y="${WY}" width="${WW}" height="${WH}" rx="6"/>` +
+      `<text x="${x + WW/2}" y="${WY + 18}" text-anchor="middle">${v.slug}</text>` +
+      `<text x="${x + WW/2}" y="${WY + 33}" text-anchor="middle" class="sublabel" id="wsub_${v.slug}">waiting</text>`;
+    workerG.appendChild(g);
+    const e1 = document.createElementNS(svgNS, "path");
+    e1.setAttribute("class", "edge send"); e1.setAttribute("id", "we1_" + v.slug);
+    e1.setAttribute("d", `M490,378 C ${490},${420} ${x+WW/2},${415} ${x+WW/2},${WY}`);
+    e1.setAttribute("opacity", ".18"); workerEdgesG.appendChild(e1);
+    const e2 = document.createElementNS(svgNS, "path");
+    e2.setAttribute("class", "edge"); e2.setAttribute("id", "we2_" + v.slug);
+    e2.setAttribute("d", `M${x+WW/2},${WY+WH} C ${x+WW/2},530 490,520 490,552`);
+    e2.setAttribute("opacity", ".18"); workerEdgesG.appendChild(e2);
+  });
+  // rebind node clicks after re-render
+  bindNodeClicks();
+}
+
+/* ---------- run state ---------- */
+const st = {
+  cursor: 0,
+  running: false,
+  current: null,       // node key currently active
+  done: new Set(),
+  err: new Set(),
+  worker: new Map(),   // slug -> {phase, method}
+  meta: null,
+  logs: [],            // [{cls, text}]
+  fanoutSent: false,
+};
+
+const NODE_EL = { preflight:"n_preflight", plan:"n_plan", fetch:"n_fetch",
+  diagnose:"n_diagnose", verify:"n_verify", render:"n_render", abort:"n_abort" };
+const NODE_IN = { plan:"e_preflight_plan", abort:"e_preflight_abort",
+  fetch:"e_plan_fetch", diagnose:"e_fetch_diagnose",
+  verify:"e_diag_verify", render:"e_verify_render" };
+const PRE_START = { preflight:"e_start_preflight" };
+const FINAL_EDGE = { render:"e_render_end" };
+
+function clearEdges() {
+  document.querySelectorAll(".edge").forEach(e => e.classList.remove("active","taken","untaken"));
+  document.querySelectorAll(".edgelabel").forEach(l => l.classList.remove("active"));
+  $("fanband") && $("fanband").setAttribute("opacity", 0);
+  $("fanbandlabel") && $("fanbandlabel").setAttribute("opacity", 0);
+}
+function resetGraph() {
+  st.current = null; st.done.clear(); st.err.clear(); st.worker.clear(); st.fanoutSent = false;
+  document.querySelectorAll(".node").forEach(n => n.classList.remove("active","done","err"));
+  clearEdges();
+  venueSlugs.forEach(s => {
+    const w = $("w_" + s);
+    if (w) { w.className.baseVal = "node small dormant"; }
+    const sub = $("wsub_" + s); if (sub) sub.textContent = "waiting";
+  });
+  $("lbl_plan").classList.remove("active"); $("lbl_abort").classList.remove("active"); $("lbl_send").classList.remove("active");
+}
+
+function activateNode(key, incomingEdge) {
+  // demote the previously active node + its edge, then light the new one
+  if (st.current) markDone(st.current);
+  if (st.current && NODE_IN[st.current]) {
+    markEdgeTaken(NODE_IN[st.current]);
+  }
+  st.current = key;
+  const el = $(NODE_EL[key]);
+  document.querySelectorAll(".node.active").forEach(n => n.classList.remove("active"));
+  if (el) el.classList.add("active");
+  if (incomingEdge) { markEdgeActive(incomingEdge); }
+  note(`<b>${key}</b> is running now`);
+  renderStateJSON();
+}
+function markDone(key) {
+  const el = $(NODE_EL[key]);
+  if (el) { el.classList.remove("active","err"); el.classList.add("done"); }
+  st.done.add(key);
+}
+function markErr(key) {
+  const el = $(NODE_EL[key]);
+  if (el) { el.classList.remove("active","done"); el.classList.add("err"); }
+  st.err.add(key);
+  if (st.current === key) st.current = null;
+}
+function markEdgeActive(id) {
+  const e = $(id); if (!e) return;
+  e.classList.add("active"); e.style.markerEnd = "url(#arrowA)";
+}
+function markEdgeTaken(id) {
+  const e = $(id); if (!e) return;
+  e.classList.remove("active"); e.classList.add("taken"); e.style.markerEnd = "url(#arrowG)";
+}
+function markEdgeUntaken(id) {
+  const e = $(id); if (!e) return;
+  e.classList.add("untaken");
+}
+function markFanout(n) {
+  $("fanband").setAttribute("opacity", 1);
+  $("fanbandlabel").setAttribute("opacity", 1);
+  $("lbl_send").classList.add("active");
+  markEdgeActive("e_diag_workers");
+  venueSlugs.forEach(s => {
+    const w = $("w_" + s);
+    if (w) { w.classList.add("active"); w.classList.remove("dormant"); }
+    $("we1_" + s).classList.add("active");
+    $("we1_" + s).setAttribute("opacity", "1");
+  });
+  note(`<b>fan-out</b> — ${n} extract_one worker(s) launched in parallel`);
+}
+function workerDone(slug, method) {
+  const w = $("w_" + slug);
+  const sub = $("wsub_" + slug);
+  if (w) { w.className.baseVal = "node small " + (method ? (method==="model"?"modelpath":"det") : "done"); }
+  if (sub) sub.textContent = method || "done";
+  $("we1_" + slug).classList.remove("active");
+  $("we1_" + slug).classList.add("taken");
+  $("we2_" + slug).classList.add("taken");
+  $("we2_" + slug).setAttribute("opacity", "1");
+  $("we2_" + slug).style.markerEnd = "url(#arrowG)";
+  st.worker.set(slug, {phase:"done", method: method||""});
+}
+function workerErr(slug) {
+  const w = $("w_" + slug);
+  if (w) { w.className.baseVal = "node small err"; }
+  const sub = $("wsub_" + slug); if (sub) sub.textContent = "error";
+  $("we1_" + slug).classList.remove("active");
+  $("we1_" + slug).classList.add("taken");
+  $("we2_" + slug).classList.add("taken");
+  $("we2_" + slug).setAttribute("opacity","1");
+}
+function workerFailed(slug) {
+  // EXTRACT_FAILED — a red OUTLINE on that venue's node so failed theatres
+  // stand out at a glance while keeping the fill readable.
+  const w = $("w_" + slug);
+  if (w) { w.className.baseVal = "node small failed"; }
+  const sub = $("wsub_" + slug); if (sub) sub.textContent = "FAILED";
+  $("we1_" + slug).classList.remove("active");
+  $("we1_" + slug).classList.add("taken");
+  $("we2_" + slug).classList.add("taken");
+  $("we2_" + slug).setAttribute("opacity", "1");
+  $("we2_" + slug).style.markerEnd = "url(#arrowR)";
+  st.worker.set(slug, {phase:"failed", method:""});
+}
+function finish(exitCode) {
+  // Light the final reduce/render edges, mark render done, and show END.
+  if (st.current === "render" || st.done.has("render") || document.body.querySelector(".node.active[data-node='render']")) {
+    markDone("render");
+  } else if (st.current) markDone(st.current);
+  markEdgeTaken("e_verify_render");
+  markEdgeTaken("e_render_end");
+  document.querySelectorAll(".node.active").forEach(n => n.classList.remove("active"));
+  $("n_END").classList.add("done"); $("n_END2").classList.add("done");
+  st.current = null;
+}
+
+/* ---------- event processing ---------- */
+function handleEvent(ev) {
+  const t = ev.t;
+  if (t === "meta") {
+    st.meta = ev;
+    note(`run started: period <b>${ev.period}</b> · backend <b>${ev.backend}</b>`);
+  } else if (t === "venues") {
+    renderWorkers(ev.venues);
+  } else if (t === "node_start") {
+    const key = ev.node;
+    if (key === "extract_one") {
+      workerStart(ev.slug);
+      addLog("node", `extract_one:${ev.slug} — starting`);
+    } else {
+      logRawStage(`NODE ${key}`);
+      if (key === "abort") { activateNode(key, "e_preflight_abort"); markEdgeUntaken("e_preflight_plan"); }
+      else activateNode(key, NODE_IN[key] || PRE_START[key]);
+    }
+  } else if (t === "node_done") {
+    const key = ev.node;
+    if (key === "extract_one") {
+      const p = ev.partial || {};
+      const res = (p.results && p.results[0]) || {};
+      const status = res.status || "done";
+      if (status === "EXTRACT_FAILED") {
+        workerFailed(ev.slug);
+        addLog("warn", `extract_one:${ev.slug} — EXTRACT_FAILED` + (res.error ? ` (${res.error})` : ""));
+      } else {
+        const method = res.method || (status === "PROMPT_WRITTEN" ? "model" : status);
+        workerDone(ev.slug, method);
+        addLog("ok", `extract_one:${ev.slug} — ${status}` + (res.method ? ` (${res.method})` : ""));
+      }
+    } else if (key === "preflight") {
+      const aborted = ev.partial && ev.partial.aborted;
+      if (aborted) { markEdgeUntaken("e_preflight_plan"); markEdgeActive("e_preflight_abort"); }
+      else { markEdgeUntaken("e_preflight_abort"); markEdgeActive("e_preflight_plan"); }
+      addLog("ok", `preflight done (aborted=${!!aborted})`);
+    } else {
+      // Mark the node done now. Nodes before "render" are also demoted by the
+      // next activation, but the final node has no successor — so do it here.
+      markDone(key);
+      addLog("ok", `${key} done`);
+    }
+  } else if (t === "node_error") {
+    const key = ev.node;
+    if (key === "extract_one") workerErr(ev.slug);
+    else markErr(key);
+    addLog("warn", `${key} ERROR — ${ev.error || ""}`);
+  } else if (t === "edge") {
+    if (ev.edge === "preflight_plan") { markEdgeTaken("e_preflight_plan"); markEdgeUntaken("e_preflight_abort"); }
+    else if (ev.edge === "preflight_abort") { markEdgeTaken("e_preflight_abort"); markEdgeUntaken("e_preflight_plan"); }
+  } else if (t === "fanout") {
+    markFanout(ev.n);
+  } else if (t === "end") {
+    st.running = false;
+    const ok = ev.exit_code === 0;
+    setStatus(ok ? "finished — OK" : `finished — exit ${ev.exit_code}`, ok, !ok);
+    $("btnStart").disabled = false; $("btnAbort").disabled = true; $("livedot").classList.remove("on");
+    finish(ev.exit_code);
+    if (!ok) addLog("warn", "run exited with code " + ev.exit_code + (ev.stderr ? " — " + ev.stderr.trim() : ""));
+    note(ok ? "<b>END</b> — run completed successfully" : `<b>END</b> — run exited non-zero (${ev.exit_code})`);
+  }
+  renderSummary();
+}
+function workerStart(slug) {
+  const w = $("w_" + slug);
+  if (w) { w.className.baseVal = "node small active"; }
+  $("we1_" + slug).classList.add("active");
+  $("we1_" + slug).setAttribute("opacity", "1");
+  const sub = $("wsub_" + slug); if (sub) sub.textContent = "…";
+  st.worker.set(slug, {phase:"running"});
+}
+/* ---------- log ---------- */
+function addLog(cls, text) {
+  const d = document.createElement("div");
+  d.className = "ln " + cls;
+  d.textContent = "· " + text;
+  $("log").appendChild(d);
+  trimLog();
+}
+function logRawStage(text) {
+  addLog("stage", text);
+}
+function trimLog() {
+  const log = $("log");
+  while (log.childElementCount > 400) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+function note(html) { $("stepnote").innerHTML = html; }
+
+/* ---------- status / summary ---------- */
+function setStatus(text, ok, err) {
+  const s = $("status");
+  s.innerHTML = ok ? `<span class="ok">${text}</span>` : (err ? `<span class="err">${text}</span>` : `<b>${text}</b>`);
+}
+function renderSummary() {
+  const m = st.meta || {};
+  const doneMain = [...st.done].filter(k => k !== "extract_one");
+  const workers = [...st.worker.values()];
+  const det = [...st.worker.entries()].filter(([,w]) => w.method && w.method !== "model").length;
+  const model = [...st.worker.entries()].filter(([,w]) => w.method === "model").length;
+  $("summary").innerHTML =
+    `<div><span class="lab">period</span> &nbsp; ${m.period || "—"}</div>` +
+    `<div><span class="lab">backend</span> &nbsp; ${m.backend || "—"}</div>` +
+    `<div><span class="lab">model</span> &nbsp; ${m.model || "—"}</div>` +
+    `<div><span class="lab">thread</span> &nbsp; ${m.thread || "—"}</div>` +
+    `<div><span class="lab">started</span> &nbsp; ${m.started_iso ? m.started_iso.replace("T"," ").slice(5,19) : "—"}</div>` +
+    `<div><span class="lab">nodes done</span> &nbsp; ${doneMain.length}/6</div>` +
+    `<div><span class="lab">workers done</span> &nbsp; ${workers.length}/${venueSlugs.length} (${det} deterministic, ${model} model)</div>`;
+}
+function renderStateJSON() {
+  // compact live state
+  const obj = {
+    running: st.running,
+    period: st.meta && st.meta.period,
+    backend: st.meta && st.meta.backend,
+    active_node: st.current,
+    nodes_done: [...st.done].sort(),
+    node_errors: [...st.err].sort(),
+    workers: Object.fromEntries([...st.worker.entries()].map(([k,v]) => [k, v.phase + (v.method ? ":"+v.method : "")])),
+  };
+  $("statejson").innerHTML = stateToJSON(obj);
+}
+function stateToJSON(o) {
+  let txt = JSON.stringify(o, null, 2);
+  txt = txt.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  txt = txt.replace(/("[^"]*")(\s*:)/g, '<span class="k">$1</span>$2');
+  txt = txt.replace(/: ("[^"]*")/g, ': <span class="s">$1</span>');
+  txt = txt.replace(/: (\d+\.?\d*)/g, ': <span class="n">$1</span>');
+  txt = txt.replace(/: (true|false|null)/g, ': <span class="b">$1</span>');
+  return txt;
+}
+
+/* ---------- events tab ---------- */
+async function refreshEvents() {
+  const period = selYear.value + "-" + selMonth.value;
+  let data;
+  try {
+    const resp = await fetch(API_BASE + "/api/events?period=" + period);
+    data = await resp.json();
+  } catch (e) { data = null; }
+  renderEvents(period, data);
+}
+function renderEvents(period, data) {
+  const meta = $("evmeta");
+  const table = $("evtable");
+  if (!data) { meta.textContent = "server unreachable"; table.innerHTML = ""; return; }
+  const rows = data.verified || [];
+  meta.textContent = data.exists
+    ? `${period} · ${rows.length} verified · ${data.dropped} dropped`
+    : `${period} · nothing verified yet — run this period in the Run tab, then refresh`;
+  if (!data.exists || !rows.length) {
+    table.innerHTML = `<tr><td class="lab">${(data.exists ? "No events verified" : "No output file")} for ${period} yet.</td></tr>`;
+    return;
+  }
+  rows.sort((a, b) => (a.data || "").localeCompare(b.data || "")
+    || (a.ora || "").localeCompare(b.ora || ""));
+  const esc = s => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  table.innerHTML =
+    `<tr class="hd"><th>date</th><th>hour</th><th>theatre</th><th>event</th></tr>` +
+    rows.map(r => {
+      const name = esc(r.spectacol);
+      const url = (r.link || "").replace(/"/g, "&quot;");
+      const theatre = esc(r.institutie || r.slug);
+      return `<tr><td>${esc(r.data)}</td><td>${esc(r.ora)}</td><td>${theatre}</td>` +
+        (url ? `<td><a href="${url}" target="_blank" rel="noopener" style="color:var(--accent)">${name} ↗</a></td>`
+             : `<td>${name}</td>`) + `</tr>`;
+    }).join("");
+}
+$("btnEvRefresh").onclick = refreshEvents;
+
+/* ---------- help tab ---------- */
+(function buildHelp() {
+  $("help").innerHTML =
+    `<h3>What this page is</h3>
+     <p>This is a <b>live run observatory</b> for the LangGraph pipeline in
+     <code>teatre_graph.py</code>. It is served by <code>teatre_viz_server.py</code>,
+     which spawns the real pipeline as a child process and streams its lifecycle
+     events here — nothing is a replay.</p>
+     <h3>Running the pipeline</h3>
+     <p>Pick a <b>Year</b> and <b>Luna</b> (the month / period), then a
+     <b>Backend</b>:</p>
+     <table>
+       <thead><tr><th>backend</th><th>needs</th></tr></thead>
+       <tbody>
+         <tr><td><code>none</code></td><td>nothing — dry run, prompts written, no model</td></tr>
+         <tr><td><code>ollama</code></td><td>local Ollama at <code>OLLAMA_HOST</code> (default 127.0.0.1:11434)</td></tr>
+         <tr><td><code>cerebras</code></td><td><code>CEREBRAS_API_KEY</code></td></tr>
+         <tr><td><code>mimo</code></td><td><code>OPENROUTER_API_KEY</code> (MiMo-V2.5 via OpenRouter)</td></tr>
+       </tbody>
+     </table>
+     <p><b>Model</b> overrides the per-backend default. Tick
+     <b>resume interrupted run</b> to continue a checkpointed run from the last
+     completing step. Only one run at a time.</p>
+     <h3>The tabs</h3>
+     <table>
+       <thead><tr><th>tab</th><th>shows</th></tr></thead>
+       <tbody>
+         <tr><td>Run</td><td>current run: period, backend, model, nodes &amp; workers done</td></tr>
+         <tr><td>State</td><td>compact JSON live state of the run</td></tr>
+         <tr><td>Event log</td><td>raw lifecycle events + the process's own log, colorized</td></tr>
+         <tr><td>Node detail</td><td>click a graph node to see what it does</td></tr>
+         <tr><td>Events</td><td>the <b>verified</b> events for the current month — date, hour, theatre, names link to the source URL</td></tr>
+         <tr><td>Help</td><td>this page</td></tr>
+       </tbody>
+     </table>
+     <p>The <b>Events</b> tab reads <code>rezultate_graph/&lt;period&gt;.verified.json</code>
+     after the run's <code>verify</code> + <code>render</code> stages finish.</p>
+     <h3>Starting the server</h3>
+     <pre>python3 teatre_viz_server.py          # http://127.0.0.1:8123
+python3 teatre_viz_server.py 9000     # custom port</pre>
+     <p>Then open <code>http://127.0.0.1:8123/</code>. <code>Ctrl+C</code> aborts the
+     active run and exits.</p>
+     <h3>Notes</h3>
+     <p><code>verify</code> is <b>never</b> a model: every row's quoted source must
+     occur literally in the snapshot, dates outside the period are dropped, and
+     invented links are replaced. Output is isolated to
+     <code>rezultate_graph/</code> + <code>snapshots_graph/</code> so a graph run
+     can never clobber a <code>teatre.py</code> run.</p>`;
+})();
+
+/* ---------- tabs ---------- */
+const tabs = ["summary","state","log","detail","events","help"];
+function showTab(t) {
+  tabs.forEach(x => { $("tab-" + x).classList.toggle("on", x === t); $("pane-" + x).classList.toggle("on", x === t); });
+}
+tabs.forEach(t => { $("tab-" + t).onclick = () => showTab(t); });
+
+/* ---------- node detail ---------- */
+const DETAILS = {
+  "preflight": {role:"Stage 0 · deterministic — proves tools + reachability",
+    body:"returns {reachable, aborted, abort_reason, timings}\nOne dead venue = DEGRADED, not fatal.\nOnly systemic failure (no tools / nothing reachable) aborts."},
+  "plan": {role:"Stage 1 · report only — institutions × months",
+    body:"expands each source into fetch unit(s); month-parameterised\ncalendars get one part per month, rolling-window sites get 'all'."},
+  "fetch": {role:"Stage 2 · T.harvest() — threaded curl + ONE Chromium + canary",
+    body:"writes snapshots_graph/<period>/*.{html,txt,meta.json}\nruns the CANARY: in-period dates lost in condensing are flagged."},
+  "diagnose": {role:"Stage 2b · T.diagnose() — per-snapshot verdict table",
+    body:"reports ld+json Event counts / Next.js payload / date density /\nmonth mention → RICH / THIN / EMPTY verdict per venue."},
+  "abort": {role:"Conditional branch — reached only on systemic failure",
+    body:"single-venue failures degrade; they never abort the run."},
+  "verify": {role:"Stage 4 · pure function · NEVER a model",
+    body:"Gate 1: citat_sursa must literally occur in the condensed snapshot.\nGate 2: data must fall in the period. Links checked vs full HTML.\n→ rezultate_graph/<period>.verified.json"},
+  "render": {role:"Stage 5 · T.render() — xlsx/csv + status sheet",
+    body:"→ rezultate_graph/<period>.xlsx (.csv fallback)"},
+};
+function bindNodeClicks() {
+  document.querySelectorAll(".node").forEach(n => {
+    n.addEventListener("click", () => {
+      const key = n.dataset.node;
+      let name = key, label = key;
+      if (key.includes(":")) { name = key.split(":")[0]; label = key; }
+      const d = DETAILS[name];
+      $("detail").innerHTML =
+        `<h3>${label}</h3>` +
+        (d ? `<div class="row"><span class="k2">${d.role}</span></div><pre>${d.body.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>`
+            : `<div class="row"><span class="k2">LangGraph node</span></div>`);
+      showTab("detail");
+    });
+  });
+}
+
+/* ---------- controls ---------- */
+$("btnStart").onclick = async () => {
+  if (st.running) return;
+  const period = selYear.value + "-" + selMonth.value;
+  const body = {
+    period, backend: $("selBackend").value,
+    model: $("inpModel").value.trim(), resume: $("chkResume").checked,
+  };
+  const resp = await fetch(API_BASE + "/api/run", { method:"POST",
+    headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+  const out = await resp.json();
+  if (out.error) { note("<b>Error:</b> " + out.error); return; }
+  resetGraph();
+  st.cursor = 0; st.meta = null;
+  $("summary").innerHTML = "";
+  $("log").innerHTML = "";
+  $("statejson").innerHTML = "";
+  st.running = true;
+  $("btnStart").disabled = true; $("btnAbort").disabled = false; $("livedot").classList.add("on");
+  setStatus("starting…", true, false);
+  $("subline").textContent = `Live run for ${ period } — watching the real process.`;
+};
+$("btnAbort").onclick = async () => {
+  await fetch(API_BASE + "/api/abort", { method:"POST" });
+  $("btnAbort").disabled = true;
+  setStatus("aborting…", false, true);
+};
+
+/* ---------- poll loop ---------- */
+async function poll() {
+  try {
+    const resp = await fetch(API_BASE + "/api/state?since=" + st.cursor);
+    const snap = await resp.json();
+    // reflect running flag
+    if (snap.running && !st.running) { st.running = true; $("livedot").classList.add("on"); $("btnStart").disabled = true; $("btnAbort").disabled = false; }
+    // events
+    (snap.events || []).forEach(handleEvent);
+    // human log lines
+    (snap.log || []).forEach(txt => {
+      // colorize: stages contain 'STAGE' / 'NODE' / 'EDGE' / 'GRAPH RUN'
+      let cls = "info";
+      if (/STAGE|NODE|EDGE|GRAPH RUN|SUPERSTEP/.test(txt)) cls = "stage";
+      else if (/CANARY|warn|!|ERROR|failed|ABORT/i.test(txt)) cls = "warn";
+      else if (/OK|verified|fetched|xlsx|done|no model/i.test(txt)) cls = "ok";
+      else if (/Send|extract/i.test(txt)) cls = "send";
+      addLog(cls, txt);
+    });
+    // status line from meta/elapsed
+    if (snap.running) {
+      setStatus("running · " + (snap.elapsed||0) + "s · " + (snap.meta && snap.meta.period ? snap.meta.period : ""), true, false);
+    } else if (snap.exit_code != null && snap.exit_code !== 0) {
+      setStatus("finished — exit " + snap.exit_code, false, true);
+    }
+    if (snap.seq > st.cursor) st.cursor = snap.seq;
+    renderStateJSON();
+    renderSummary();
+  } catch (e) {
+    setStatus("server unreachable", false, true);
+  }
+}
+setInterval(poll, 500);
+poll();
+
+// seed empty state json
+bindNodeClicks();
+renderStateJSON();
+</script>
+</body>
+</html>

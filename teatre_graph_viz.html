@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>teatre_graph.py — LangGraph Activity Visualizer</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2333; --border: #30363d;
+    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --amber: #d29922; --red: #f85149; --purple: #bc8cff; --cyan: #39c5cf;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "SF Mono", Menlo, Consolas, monospace; padding: 14px; }
+  h1 { font-size: 17px; margin-bottom: 2px; }
+  h1 .tag { color: var(--purple); }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 12px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #1f6feb; border-color: #1f6feb; }
+  button:disabled { opacity: .4; cursor: default; }
+  .speed { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; }
+  .progress { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .layout { display: grid; grid-template-columns: minmax(560px, 1.15fr) minmax(420px, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 8px; }
+  .card.side-panel { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 480px; }
+  svg { width: 100%; height: auto; display: block; }
+
+  /* ---- graph styling ---- */
+  .node rect, .node circle { fill: #21262d; stroke: #444c56; stroke-width: 1.5; transition: all .25s; }
+  .node text { fill: var(--text); font-size: 13px; font-family: inherit; }
+  .node .sublabel { fill: var(--dim); font-size: 9.5px; }
+  .node.small text { font-size: 10px; }
+  .node { cursor: pointer; }
+  .node:hover rect, .node:hover circle { stroke: var(--accent); }
+  .node.active rect, .node.active circle { fill: #0c2d6b; stroke: var(--accent); stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(88,166,255,.7)); }
+  .node.done rect, .node.done circle { fill: #10291a; stroke: var(--green); }
+  .node.det rect { fill: #10291a; stroke: var(--green); }
+  .node.modelpath rect { fill: #2d2000; stroke: var(--amber); }
+  .node.dormant { opacity: .28; }
+  .endpoint circle { fill: #0d1117; }
+  .edge { stroke: #444c56; stroke-width: 1.8; fill: none; marker-end: url(#arrow); transition: all .25s; }
+  .edge.conditional { stroke-dasharray: 6 4; }
+  .edge.send { stroke: var(--purple); stroke-dasharray: 3 3; }
+  .edge.active { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 4px rgba(88,166,255,.8)); animation: flow 1s linear infinite; }
+  .edge.taken { stroke: var(--green); stroke-width: 2.5; }
+  .edge.untaken { opacity: .25; }
+  @keyframes flow { to { stroke-dashoffset: -20; } }
+  .edgelabel { fill: var(--dim); font-size: 10px; font-family: inherit; }
+  .edgelabel.active { fill: var(--accent); }
+  .band { fill: rgba(188,140,255,.06); stroke: rgba(188,140,255,.35); stroke-dasharray: 4 4; rx: 8; }
+  .bandlabel { fill: var(--purple); font-size: 10px; }
+
+  /* ---- right panel ---- */
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tabs button { border-radius: 6px 6px 0 0; padding: 5px 12px; font-size: 12px; }
+  .tabs button.on { background: #1f6feb; border-color: #1f6feb; }
+  .tabpane { display: none; flex: 1 1 0; min-height: 0; overflow: auto; }
+  .tabpane.on { display: flex; flex-direction: column; }
+  pre.json { font-size: 11.5px; white-space: pre-wrap; word-break: break-word; flex: 1 1 0; min-height: 0; overflow: auto; }
+  .json .k { color: var(--accent); } .json .s { color: #a5d6ff; } .json .n { color: #f2cc60; }
+  .json .b { color: var(--purple); } .json .omit { color: var(--dim); font-style: italic; }
+  #log { font-size: 12px; }
+  #log .ln { padding: 2px 0; border-bottom: 1px solid #21262d; }
+  #log .stage { color: var(--cyan); font-weight: bold; margin-top: 6px; }
+  #log .warn { color: var(--amber); }
+  #log .ok { color: var(--green); }
+  #log .info { color: var(--dim); }
+  #log .send { color: var(--purple); }
+  .concept { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; background: var(--panel2); }
+  .concept.lit { border-color: var(--purple); box-shadow: 0 0 10px rgba(188,140,255,.25); }
+  .concept h3 { font-size: 13px; color: var(--purple); margin-bottom: 4px; }
+  .concept p { font-size: 12px; color: var(--text); }
+  .concept code { background: #0d1117; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 11px; color: #a5d6ff; }
+  #detail { font-size: 12.5px; }
+  #detail h3 { color: var(--accent); font-size: 14px; margin-bottom: 6px; }
+  #detail .row { margin-bottom: 6px; }
+  #detail .k2 { color: var(--dim); }
+  #detail pre { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; white-space: pre-wrap; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--dim); }
+  .legend span::before { content: "■ "; }
+  .legend .l-idle::before { color: #444c56; } .legend .l-active::before { color: var(--accent); }
+  .legend .l-done::before { color: var(--green); } .legend .l-det::before { color: var(--green); }
+  .legend .l-model::before { color: var(--amber); } .legend .l-send::before { color: var(--purple); }
+  .stepnote { background: var(--panel2); border-left: 3px solid var(--purple); border-radius: 0 8px 8px 0; padding: 8px 10px; font-size: 12.5px; margin-top: 10px; min-height: 54px; }
+  .stepnote b { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<h1>teatre_graph.py <span class="tag">— LangGraph activity visualizer</span></h1>
+<div class="sub">Replays a real run (<code>--period 2026-09 --backend none</code>, 8.5s, 129 verified rows). Click any node for details. Use the tabs to watch state, logs, and concepts.</div>
+
+<div class="controls">
+  <button class="primary" id="btnPlay">▶ Play</button>
+  <button id="btnStepBack">⏮ Back</button>
+  <button id="btnStep">Step ⏭</button>
+  <button id="btnReset">↺ Reset</button>
+  <div class="speed">speed <input type="range" id="speed" min="200" max="3000" value="1400" step="100"></div>
+  <div class="progress" id="progress">step 0 / 11</div>
+</div>
+
+<div class="layout">
+  <!-- ============================ GRAPH ============================ -->
+  <div class="card">
+    <h2>Compiled graph topology (StateGraph)</h2>
+    <svg viewBox="0 0 980 760" id="canvas">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#444c56"/>
+        </marker>
+        <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#58a6ff"/>
+        </marker>
+        <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#3fb950"/>
+        </marker>
+        <marker id="arrowP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#bc8cff"/>
+        </marker>
+      </defs>
+
+      <!-- fan-out band -->
+      <rect class="band" x="60" y="418" width="860" height="96" id="fanband" opacity="0"/>
+      <text class="bandlabel" x="72" y="434" id="fanbandlabel" opacity="0">superstep — all Send() workers run concurrently, then a barrier joins them</text>
+
+      <!-- edges (paths) -->
+      <path class="edge" id="e_start_preflight" d="M490,44 L490,72"/>
+      <path class="edge conditional" id="e_preflight_plan" d="M490,118 L490,162"/>
+      <path class="edge conditional" id="e_preflight_abort" d="M580,95 L740,95"/>
+      <path class="edge" id="e_abort_end" d="M820,72 L820,44"/>
+      <path class="edge" id="e_plan_fetch" d="M490,208 L490,247"/>
+      <path class="edge" id="e_fetch_diagnose" d="M490,293 L490,332"/>
+      <path class="edge send" id="e_diag_workers" d="M490,378 L490,440" style="opacity:.35"/>
+      <path class="edge conditional" id="e_diag_verify" d="M600,362 C 760,390 800,500 640,565" style="opacity:.35"/>
+      <g id="workerEdges"></g>
+      <path class="edge" id="e_verify_render" d="M490,598 L490,632"/>
+      <path class="edge" id="e_render_end" d="M490,678 L490,712"/>
+
+      <text class="edgelabel" id="lbl_plan" x="498" y="145">returns "plan"</text>
+      <text class="edgelabel" id="lbl_abort" x="600" y="88" opacity=".5">returns "abort" (not taken)</text>
+      <text class="edgelabel" id="lbl_send" x="498" y="410" opacity=".6">conditional edge returns list[Send] ×11</text>
+
+      <!-- nodes -->
+      <g class="node endpoint" id="n_START" data-node="START">
+        <circle cx="490" cy="30" r="13"/><text x="512" y="34" class="sublabel">START</text>
+      </g>
+      <g class="node" id="n_preflight" data-node="preflight">
+        <rect x="400" y="72" width="180" height="46" rx="9"/>
+        <text x="490" y="91" text-anchor="middle">preflight</text>
+        <text x="490" y="107" text-anchor="middle" class="sublabel">T.preflight() · no model</text>
+      </g>
+      <g class="node" id="n_abort" data-node="abort" opacity=".55">
+        <rect x="740" y="72" width="160" height="46" rx="9"/>
+        <text x="820" y="91" text-anchor="middle">abort</text>
+        <text x="820" y="107" text-anchor="middle" class="sublabel">systemic failure only</text>
+      </g>
+      <g class="node endpoint" id="n_END2" data-node="END">
+        <circle cx="820" cy="30" r="13"/><text x="842" y="34" class="sublabel">END</text>
+      </g>
+      <g class="node" id="n_plan" data-node="plan">
+        <rect x="400" y="162" width="180" height="46" rx="9"/>
+        <text x="490" y="181" text-anchor="middle">plan</text>
+        <text x="490" y="197" text-anchor="middle" class="sublabel">institutions × months</text>
+      </g>
+      <g class="node" id="n_fetch" data-node="fetch">
+        <rect x="400" y="247" width="180" height="46" rx="9"/>
+        <text x="490" y="266" text-anchor="middle">fetch</text>
+        <text x="490" y="282" text-anchor="middle" class="sublabel">T.harvest() · curl pool + 1 browser</text>
+      </g>
+      <g class="node" id="n_diagnose" data-node="diagnose">
+        <rect x="400" y="332" width="180" height="46" rx="9"/>
+        <text x="490" y="351" text-anchor="middle">diagnose</text>
+        <text x="490" y="367" text-anchor="middle" class="sublabel">T.diagnose() · verdict table</text>
+      </g>
+      <g id="workers"></g>
+      <g class="node" id="n_verify" data-node="verify">
+        <rect x="400" y="552" width="180" height="46" rx="9"/>
+        <text x="490" y="571" text-anchor="middle">verify</text>
+        <text x="490" y="587" text-anchor="middle" class="sublabel">T.verify() · NEVER a model</text>
+      </g>
+      <g class="node" id="n_render" data-node="render">
+        <rect x="400" y="632" width="180" height="46" rx="9"/>
+        <text x="490" y="651" text-anchor="middle">render</text>
+        <text x="490" y="667" text-anchor="middle" class="sublabel">T.render() · xlsx + status</text>
+      </g>
+      <g class="node endpoint" id="n_END" data-node="END">
+        <circle cx="490" cy="726" r="13"/><text x="512" y="730" class="sublabel">END</text>
+      </g>
+    </svg>
+    <div class="legend">
+      <span class="l-idle">idle</span>
+      <span class="l-active">running now</span>
+      <span class="l-done">completed</span>
+      <span class="l-det">deterministic extract (no model)</span>
+      <span class="l-model">model rung / prompt written</span>
+      <span class="l-send">Send() edge</span>
+    </div>
+    <div class="stepnote" id="stepnote">Press <b>Play</b> or <b>Step</b> to replay the run. Click any node for its LangGraph role.</div>
+  </div>
+
+  <!-- ============================ SIDE PANEL ============================ -->
+  <div class="card side-panel">
+    <div class="tabs">
+      <button id="tab-state" class="on">State</button>
+      <button id="tab-log">Event log</button>
+      <button id="tab-learn">Learn LangGraph</button>
+      <button id="tab-detail">Node detail</button>
+    </div>
+    <div class="tabpane on" id="pane-state"><pre class="json" id="statejson"></pre></div>
+    <div class="tabpane" id="pane-log"><div id="log"></div></div>
+    <div class="tabpane" id="pane-learn">
+      <div class="concept" id="c-stategraph"><h3>1 · StateGraph &amp; compile()</h3>
+        <p>A graph is a typed <code>StateGraph(GraphState)</code>: you register nodes (<code>add_node(name, fn)</code>) and edges, then <code>compile(checkpointer)</code> turns the declaration into a runnable. The compiled object is immutable — executing it never rewrites the topology.</p></div>
+      <div class="concept" id="c-nodes"><h3>2 · Nodes are plain functions</h3>
+        <p>Each node receives the full state and returns a <b>partial dict</b> of updates. Never mutate the incoming state — the framework merges your return value into it. <code>n_preflight</code> returns only <code>reachable / aborted / timings</code>.</p></div>
+      <div class="concept" id="c-conditional"><h3>3 · Conditional edges = routing functions</h3>
+        <p><code>add_conditional_edges("preflight", r_after_preflight, ["abort","plan"])</code> — the function reads state and returns the next node's name. Abort-on-systemic-failure / degrade-on-one-dead-venue becomes visible topology instead of buried if-statements.</p></div>
+      <div class="concept" id="c-send"><h3>4 · Send() — the map step</h3>
+        <p>A conditional edge may return <code>list[Send]</code> instead of a node name. Each <code>Send("extract_one", task)</code> spawns an instance of the node with its <b>own private payload</b> (ExtractTask), not the whole state. That is how 11 snapshots fan out into 11 parallel workers.</p></div>
+      <div class="concept" id="c-reducer"><h3>5 · Reducers — the reduce step</h3>
+        <p>Concurrent workers all write to <code>results</code>. The field is declared <code>Annotated[list, operator.add]</code>, so the framework <b>concatenates</b> their outputs instead of raising <code>InvalidUpdateError: Can receive only one value per step</code>. This is the #1 fan-out gotcha.</p></div>
+      <div class="concept" id="c-superstep"><h3>6 · Supersteps &amp; the implicit barrier</h3>
+        <p>Execution proceeds in supersteps (Pregel-style): all nodes scheduled in step N finish before step N+1 starts. That is why <code>verify</code> — with one edge from <code>extract_one</code> — automatically waits for <b>all 11</b> workers. No barrier code exists; the join is free.</p></div>
+      <div class="concept" id="c-checkpoint"><h3>7 · Checkpointer &amp; thread_id</h3>
+        <p><code>SqliteSaver</code> persists state after every superstep, keyed by <code>thread_id</code>. Re-invoke with the same id and execution resumes from the last checkpoint — a crash in render doesn't re-fetch 11 sites or re-pay for extraction. <code>teatre_graph_checkpoints.db</code> holds it here.</p></div>
+      <div class="concept" id="c-design"><h3>8 · The design ratio: 1 model node</h3>
+        <p>Only the fallback rung of <code>extract_one</code> can call a model — and even that runs deterministic parsers first (<code>T.deterministic_rows</code>). verify is a pure function. LangGraph adds orchestration (state, fan-out, checkpoints, tracing), <b>not</b> autonomy. A model cannot be asked to promise it followed a procedure; the graph structure makes the procedure the only path.</p></div>
+      <div class="concept" id="c-invoke"><h3>9 · invoke() and recursion_limit</h3>
+        <p><code>graph.invoke(initial_state, {"configurable": {"thread_id": ...}, "recursion_limit": 200})</code> drives the run to END. The limit counts supersteps — fan-out of 11 workers still costs little because parallel Sends share one superstep.</p></div>
+    </div>
+    <div class="tabpane" id="pane-detail"><div id="detail"><span style="color:var(--dim)">Click a node in the graph…</span></div></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Real run data (teatre_graph.py --period 2026-09 --backend none)
+   ===================================================================== */
+const VENUES = [
+  {slug:"tnb",       part:"2026-09", strat:"browser", bytes:123132, cond:2984,  canary:0},
+  {slug:"bulandra",  part:"all",     strat:"curl",    bytes:337849, cond:16977, canary:0},
+  {slug:"comedie",   part:"all",     strat:"curl",    bytes:106159, cond:503,   canary:1},
+  {slug:"opereta",   part:"all",     strat:"curl",    bytes:270117, cond:11531, canary:1},
+  {slug:"onb",       part:"2026-09", strat:"curl",    bytes:152467, cond:6843,  canary:0},
+  {slug:"circ",      part:"all",     strat:"curl",    bytes:82228,  cond:328,   canary:1, tls:false},
+  {slug:"nottara",   part:"all",     strat:"curl",    bytes:171466, cond:8729,  canary:0},
+  {slug:"odeon",     part:"all",     strat:"curl",    bytes:315351, cond:15560, canary:0},
+  {slug:"act",       part:"all",     strat:"curl",    bytes:36512,  cond:481,   canary:0},
+  {slug:"metropolis",part:"all",     strat:"curl",    bytes:72695,  cond:6246,  canary:0},
+  {slug:"grivita53", part:"all",     strat:"curl",    bytes:111538, cond:5994,  canary:0},
+];
+const EXTRACT = [
+  {slug:"odeon",      kind:"det",   method:"jsonld",       rows:13, ms:15},
+  {slug:"nottara",    kind:"det",   method:"data-attrs",   rows:13, ms:19},
+  {slug:"tnb",        kind:"det",   method:"fullcalendar", rows:81, ms:18},
+  {slug:"bulandra",   kind:"det",   method:"inline-json",  rows:22, ms:20},
+  {slug:"metropolis", kind:"model", chars:7397},
+  {slug:"grivita53",  kind:"model", chars:7135},
+  {slug:"act",        kind:"model", chars:1622},
+  {slug:"circ",       kind:"model", chars:1494},
+  {slug:"comedie",    kind:"model", chars:1645},
+  {slug:"onb",        kind:"model", chars:8010},
+  {slug:"opereta",    kind:"model", chars:12710},
+];
+const REACHABLE = Object.fromEntries(VENUES.map(v => [v.slug, "OK"]));
+
+/* =====================================================================
+   Build the 11 extract_one worker nodes + fan-in edges in the SVG
+   ===================================================================== */
+const svgNS = "http://www.w3.org/2000/svg";
+const workerG = document.getElementById("workers");
+const workerEdgesG = document.getElementById("workerEdges");
+const WX0 = 82, WX1 = 898, WY = 452, WW = 66, WH = 44, N = VENUES.length;
+const workerX = i => WX0 + i * (WX1 - WX0 - WW) / (N - 1);
+VENUES.forEach((v, i) => {
+  const x = workerX(i);
+  const g = document.createElementNS(svgNS, "g");
+  g.setAttribute("class", "node small dormant");
+  g.setAttribute("id", "w_" + v.slug);
+  g.dataset.node = "extract_one:" + v.slug;
+  g.innerHTML =
+    `<rect x="${x}" y="${WY}" width="${WW}" height="${WH}" rx="6"/>` +
+    `<text x="${x + WW/2}" y="${WY + 18}" text-anchor="middle">${v.slug}</text>` +
+    `<text x="${x + WW/2}" y="${WY + 33}" text-anchor="middle" class="sublabel" id="wsub_${v.slug}">extract_one</text>`;
+  workerG.appendChild(g);
+  const e1 = document.createElementNS(svgNS, "path");
+  e1.setAttribute("class", "edge send"); e1.setAttribute("id", "we1_" + v.slug);
+  e1.setAttribute("d", `M490,378 C ${490},${420} ${x+WW/2},${415} ${x+WW/2},${WY}`);
+  e1.setAttribute("opacity", ".18"); workerEdgesG.appendChild(e1);
+  const e2 = document.createElementNS(svgNS, "path");
+  e2.setAttribute("class", "edge"); e2.setAttribute("id", "we2_" + v.slug);
+  e2.setAttribute("d", `M${x+WW/2},${WY+WH} C ${x+WW/2},530 490,520 490,552`);
+  e2.setAttribute("opacity", ".18"); workerEdgesG.appendChild(e2);
+});
+
+/* =====================================================================
+   Timeline — each frame: active nodes, edges taken, logs, state, concept
+   ===================================================================== */
+const Omit = n => `… ${n} entries omitted …`;
+function stateAt(stage) {
+  const s = {
+    period: "2026-09", backend: "none", model: "", concurrency: 4,
+    aborted: false, abort_reason: "",
+  };
+  if (stage >= 1) { s.reachable = REACHABLE; s.timings = [["preflight", 2.9]]; }
+  if (stage >= 3) s.timings = [["preflight", 2.9], ["harvest", 5.5]];
+  if (stage >= 4) s.timings.push(["diagnose", 0.024]);
+  if (stage >= 6) {
+    s.results = EXTRACT.map(e => e.kind === "det"
+      ? {stem: `${e.slug}__${e.slug==="tnb"?"2026-09":"all"}`, status: "OK", method: e.method, rows: `[${e.rows} rows]`}
+      : {stem: `${e.slug}__${e.slug==="onb"||e.slug==="tnb"?"2026-09":"all"}`, status: "PROMPT_WRITTEN", rows: []});
+    s.timings = s.timings.concat(EXTRACT.map(e => [`extract:${e.slug}`, e.kind==="det" ? e.ms/1000 : 0.001]));
+  }
+  if (stage >= 7) { s.n_verified = 129; s.n_dropped = 0; s.timings.push(["verify", 0.018]); }
+  if (stage >= 8) s.timings.push(["render", 0.055]);
+  return s;
+}
+
+const FRAMES = [
+  { // 0
+    title: "invoke() — the run begins",
+    active: ["n_START"], edges: [], concept: "c-stategraph",
+    log: [["stage", "graph.invoke(initial_state, thread_id='teatru-graph-…', recursion_limit=200)"],
+          ["info", "initial state: period=2026-09 backend=none concurrency=4 results=[] timings=[]"],
+          ["info", "SqliteSaver checkpoints every superstep → teatre_graph_checkpoints.db"]],
+    note: "<b>invoke()</b> feeds the initial state into START. The compiled graph is a pure executor: nodes run, return partial updates, the framework merges them and follows edges. Everything you'll see is one superstep at a time.",
+    state: {period:"2026-09", backend:"none", model:"", concurrency:4, results:"[]", timings:"[]"},
+  },
+  { // 1
+    title: "preflight (Stage 0)",
+    active: ["n_preflight"], edges: [["e_start_preflight"]], concept: "c-nodes",
+    log: [["stage", "NODE preflight — T.preflight(verbose=False)"],
+          ["ok", "curl, python3 found · 11/11 enabled sources reachable (masca is disabled in surse.json)"],
+          ["info", "returns {reachable, aborted:false, timings:[('preflight', 2.9)]} — a PARTIAL state dict"]],
+    note: "<b>Nodes are plain functions.</b> preflight receives the full state but returns only the keys it changed. The framework merges them — the node never mutates shared state. Probes run concurrently inside T.preflight's own thread pool.",
+    state: stateAt(1),
+  },
+  { // 2
+    title: "conditional edge routes around abort",
+    active: ["n_preflight"], edges: [["e_preflight_plan","taken"],["e_preflight_abort","untaken"]], concept: "c-conditional",
+    log: [["stage", "EDGE r_after_preflight(state) evaluated"],
+          ["info", "state['aborted'] == False → returns 'plan'"],
+          ["info", "'abort' branch exists in topology but is NOT traversed"]],
+    note: "<b>Conditional edges</b> are functions returning the next node's name. <code>add_conditional_edges(\"preflight\", r_after_preflight, [\"abort\",\"plan\"])</code> — abort-on-systemic-failure is encoded as topology, not as an if-statement buried in code.",
+    state: stateAt(1),
+  },
+  { // 3
+    title: "plan (Stage 1)",
+    active: ["n_plan"], edges: [["e_plan_fetch"]], concept: "c-nodes",
+    log: [["stage", "NODE plan — expand institutions × months"],
+          ["info", "T.parts_for(): 11 fetch units (onb & tnb month-parameterised → part '2026-09', rest → 'all')"],
+          ["info", "returns {} — pure reporting node, no state change"]],
+    note: "plan shows that a node may return an <b>empty dict</b>: it ran, it's checkpointed, it changed nothing. Months come from Period.months() — a range spanning several months would create several parts per venue.",
+    state: stateAt(1),
+  },
+  { // 4
+    title: "fetch = T.harvest (Stage 2)",
+    active: ["n_fetch"], edges: [["e_fetch_diagnose"]], concept: "c-design",
+    log: [["stage", "NODE fetch — delegates to T.harvest(period, concurrency=4)"],
+          ["info", "10 curl parts fan out in a thread pool · 1 browser part (tnb) uses the SHARED Chromium"],
+          ["ok", "11/11 fetched · 1.78 MB raw → 76.2 KB condensed (23×)"],
+          ["warn", "CANARY ×3: comedie, opereta, circ lost in-period date 2026-09-07 during condensing"],
+          ["info", "writes snapshots_graph/2026-09/*.{html,txt,meta.json} + tnb screenshot .png"]],
+    note: "The graph doesn't reimplement harvesting — it calls the audited code from teatre.py, which runs the <b>canary</b> (did condensing lose dates?) and shares <b>one</b> Chromium across browser pages. LangGraph supplies orchestration; teatre.py supplies correctness.",
+    state: stateAt(3),
+  },
+  { // 5
+    title: "diagnose (Stage 2b)",
+    active: ["n_diagnose"], edges: [], concept: "c-design",
+    log: [["stage", "NODE diagnose — T.diagnose(period)"],
+          ["info", "6 RICH (grivita53, metropolis, nottara, odeon, onb, tnb) · 5 THIN (act, bulandra, circ, comedie, opereta)"],
+          ["info", "odeon: 13 schema.org Event nodes · tnb: 42 dates (FullCalendar grid)"],
+          ["warn", "follow-ups printed for the 5 thin venues"]],
+    note: "diagnose inspects what each snapshot <b>actually contains</b> before extraction — the evidence-first discipline of teatre.py carried into the graph as a plain deterministic node.",
+    state: stateAt(3),
+  },
+  { // 6
+    title: "fan_out_extract returns 11 × Send()",
+    active: ["n_diagnose","fanband"], edges: [["e_diag_workers"]], concept: "c-send",
+    log: [["stage", "EDGE fan_out_extract(state) evaluated"],
+          ["send", "returns [Send('extract_one', task) × 11] — one per snapshot meta on disk"],
+          ["send", "each task is an ExtractTask {period, stem, slug, backend, model} — NOT the whole state"]],
+    note: "<b>Send() is the map step.</b> A conditional edge returning a list of Sends spawns N concurrent instances of the same node, each with its own private payload. Returning a plain name instead ('verify') is how you short-circuit when there's nothing to do.",
+    state: stateAt(4),
+  },
+  { // 7
+    title: "superstep: 11 extract_one workers",
+    active: VENUES.map(v => "w_" + v.slug), edges: [], concept: "c-superstep",
+    workers: true,
+    log: [["stage", "SUPERSTEP — all 11 extract_one instances run concurrently"],
+          ["ok", "odeon → jsonld ladder · 13 rows · 15ms · NO MODEL"],
+          ["ok", "nottara → data-attrs ladder · 13 rows · 19ms · NO MODEL"],
+          ["ok", "tnb → fullcalendar ladder · 81 rows · 18ms · NO MODEL"],
+          ["ok", "bulandra → inline-json ladder · 22 rows · 20ms · NO MODEL"],
+          ["warn", "7 venues fall through to rung 2 → backend=none, prompts written to snapshots_graph/2026-09/prompts/"],
+          ["info", "11 partial updates {'results':[…]} merged by the operator.add reducer"]],
+    note: "Each worker first tries <b>T.deterministic_rows()</b> (green = parsed free, no model). With --backend none the model rung only writes prompt files. All 11 return <code>{'results': [...]}</code>; the reducer concatenates them — and the next node cannot start until every worker finishes.",
+    state: stateAt(6),
+  },
+  { // 8
+    title: "barrier → verify (Stage 4)",
+    active: ["n_verify"], edges: [["e_verify_render"]], concept: "c-reducer",
+    log: [["stage", "BARRIER — superstep complete, all 11 results in state"],
+          ["stage", "NODE verify — T.verify(period), pure function, NEVER a model"],
+          ["ok", "bulandra kept 22 · nottara kept 13 · odeon kept 13 · tnb kept 81"],
+          ["ok", "129 verified · 0 dropped · 0 duplicates → rezultate_graph/2026-09.verified.json"]],
+    note: "<b>The reduce/join is free.</b> verify has a single incoming edge from extract_one, yet it waits for all 11 instances — superstep semantics. Gates: citat_sursa must literally occur in the snapshot evidence; date must be in period. Invented links get replaced.",
+    state: stateAt(7),
+  },
+  { // 9
+    title: "render (Stage 5)",
+    active: ["n_render"], edges: [["e_render_end"]], concept: "c-checkpoint",
+    log: [["stage", "NODE render — T.render(period)"],
+          ["ok", "129 performance(s) across 4 venue(s) → rezultate_graph/2026-09.xlsx"],
+          ["info", "status sheet lists all 12 institutions incl. masca (Exclus) and 7 'prompt written' venues"]],
+    note: "render always emits a table plus a per-institution status sheet, so '0 rows' is distinguishable from 'never checked'. Note the outputs live in <b>rezultate_graph/</b> — the graph never clobbers teatre.py's rezultate/.",
+    state: stateAt(8),
+  },
+  { // 10
+    title: "END — checkpoint persisted",
+    active: ["n_END"], edges: [], concept: "c-invoke",
+    log: [["stage", "END reached — invoke() returns final state"],
+          ["ok", "GRAPH RUN 8.5s · 4 deterministic extractions · 129 verified · 0 dropped"],
+          ["info", "final SqliteSaver checkpoint written for thread_id → --resume possible"]],
+    note: "Total: 8.5s wall time. The deterministic ladder produced all 129 rows without a single model call — that ratio (1 model node, reached only as fallback) is the design.",
+    state: stateAt(8),
+  },
+];
+
+/* =====================================================================
+   Node detail content
+   ===================================================================== */
+const DETAILS = {
+  "START": {fn:"graph.invoke(initial_state, config)", role:"Entry point (LangGraph START constant)",
+    body:"invoke({period, backend, model, concurrency, results:[], timings:[]},\n       {'configurable': {'thread_id': 'teatru-graph-…'},\n        'recursion_limit': 200})"},
+  "preflight": {fn:"n_preflight(state) → T.preflight(verbose=False)", role:"Stage 0 · deterministic node",
+    body:"code, reachable = T.preflight(verbose=False)\nreturn {'reachable': reachable,\n        'aborted': bool(code),\n        'abort_reason': 'no source reachable…' if code else '',\n        'timings': [('preflight', …)]}\n\n# DNS+HTTP probe per institution, threaded.\n# One dead venue = DEGRADED, not fatal."},
+  "abort": {fn:"n_abort(state)", role:"Conditional branch target",
+    body:"print(f\"[abort] {state['abort_reason']}\")\nreturn {}\n\n# Reached only on SYSTEMIC failure (no tools,\n# or zero reachable sources). Single-venue\n# failures degrade, they never abort."},
+  "plan": {fn:"n_plan(state)", role:"Stage 1 · deterministic node",
+    body:"period = T.parse_period(state['period'])\nfor inst in T.load_sources():\n    parts = T.parts_for(inst, period)\n    # month-parameterised sites → 1 part/month\n    # rolling-window sites → single 'all' part\nreturn {}"},
+  "fetch": {fn:"n_fetch(state) → T.harvest(period, concurrency)", role:"Stage 2 · deterministic node",
+    body:"T.harvest(period, concurrency=state['concurrency'])\n\n# Inside T.harvest:\n#  • curl parts → ThreadPoolExecutor(4)\n#  • browser parts → ONE shared Chromium\n#  • writes .html + .txt (condensed) + .meta.json\n#  • runs CANARY: in-period dates present in raw\n#    but lost by condense() get flagged loudly"},
+  "diagnose": {fn:"n_diagnose(state) → T.diagnose(period)", role:"Stage 2b · deterministic node",
+    body:"T.diagnose(T.parse_period(state['period']))\n\n# per snapshot: raw/text sizes, schema.org Event\n# count, __NEXT_DATA__, date density, month\n# mention → RICH / THIN / EMPTY / NO-DATES verdict"},
+  "verify": {fn:"n_verify(state) → T.verify(period)", role:"Stage 4 · pure function · NEVER a model",
+    body:"T.verify(period)\n\n# Gate 1: row.citat_sursa must literally occur in\n#         the condensed snapshot text\n# Gate 2: row.data must fall inside the period\n# Link check: against FULL HTML; invented links\n#         are replaced by the source URL\n# → rezultate_graph/<label>.verified.json"},
+  "render": {fn:"n_render(state) → T.render(period)", role:"Stage 5 · deterministic node",
+    body:"T.render(T.parse_period(state['period']))\n\n# Always a table + per-institution status sheet:\n# 'N spectacole' / 'Calendar negăsit' / 'Exclus…'\n# → rezultate_graph/<label>.xlsx (.csv fallback)"},
+  "END": {fn:"(graph terminates)", role:"Terminal marker",
+    body:"invoke() returns the final merged state.\nSqliteSaver has a checkpoint for this thread_id,\nso --resume can continue an interrupted run."},
+};
+EXTRACT.forEach(e => {
+  const det = e.kind === "det";
+  DETAILS["extract_one:" + e.slug] = {
+    fn: "n_extract_one(task) — instance for " + e.slug,
+    role: det ? `Stage 3 · deterministic rung won: ${e.method} · ${e.rows} rows · no model`
+               : "Stage 3 · fell through to model rung (prompt written, backend=none)",
+    body: det
+      ? `raw_html = read(snapshots_graph/2026-09/${e.slug}__*.html)\nwant = surse.json[${e.slug}].extract  # 'auto'/'llm'/named\n\nstrat, rows = T.deterministic_rows(raw_html, period, want)\n# strat == '${e.method}' → ${e.rows} rows, ${e.ms}ms, ZERO model cost\n\nT.write_result(day, stem, {'status':'OK', 'method':strat, 'rows':rows})\nreturn {'results': [{…}], 'timings': [('extract:${e.slug}', ${e.ms/1000})]}`
+      : `deterministic_rows found nothing → LADDER STEP 2:\n\ntext = read(${e.slug}__*.txt)          # condensed payload\nif backend in (cerebras, anthropic):\n    text = redact_pii(text)            # scrub emails/phones\nprompt = T.EXTRACT_PROMPT.format(…, html=text)\n\nbackend == 'none' → write prompt file (${e.chars} chars)\nsnapshots_graph/2026-09/prompts/${e.slug}__*.txt\n\nreturn {'results': [{'status': 'PROMPT_WRITTEN', 'rows': []}]}`
+  };
+});
+
+/* =====================================================================
+   Rendering engine
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+let frame = -1, playing = false, timer = null;
+
+function stateToJSON(s) {
+  const replacer = (k, v) => v;
+  let txt = JSON.stringify(s, replacer, 2);
+  txt = txt.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  txt = txt.replace(/("[^"]*")(\s*:)/g, '<span class="k">$1</span>$2');
+  txt = txt.replace(/: ("[^"]*")/g, ': <span class="s">$1</span>');
+  txt = txt.replace(/: (\d+\.?\d*)/g, ': <span class="n">$1</span>');
+  txt = txt.replace(/: (true|false|null)/g, ': <span class="b">$1</span>');
+  return txt;
+}
+
+function clearActive() {
+  document.querySelectorAll(".node").forEach(n => n.classList.remove("active"));
+  document.querySelectorAll(".edge").forEach(e => { e.classList.remove("active","taken","untaken"); e.style.markerEnd = ""; });
+  document.querySelectorAll(".edgelabel").forEach(l => l.classList.remove("active"));
+  $("fanband").setAttribute("opacity", 0);
+  $("fanbandlabel").setAttribute("opacity", 0);
+}
+
+function resetVisual() {
+  clearActive();
+  VENUES.forEach(v => {
+    const w = $("w_" + v.slug);
+    w.className.baseVal = "node small dormant";
+    $("wsub_" + v.slug).textContent = "extract_one";
+    $("we1_" + v.slug).setAttribute("opacity", ".18");
+    $("we2_" + v.slug).setAttribute("opacity", ".18");
+  });
+  ["n_preflight","n_plan","n_fetch","n_diagnose","n_verify","n_render"].forEach(id => $(id).classList.remove("done"));
+  $("lbl_plan").classList.remove("active"); $("lbl_abort").classList.remove("active"); $("lbl_send").classList.remove("active");
+}
+
+function applyFrame(f) {
+  resetVisual();
+  // mark all nodes from previous frames done
+  for (let i = 0; i < f; i++) {
+    FRAMES[i].active.forEach(id => {
+      if (id === "fanband") return;
+      const el = $(id); if (el) el.classList.add("done");
+    });
+    if (FRAMES[i].workers) VENUES.forEach(v => {
+      const e = EXTRACT.find(x => x.slug === v.slug);
+      const w = $("w_" + v.slug);
+      w.classList.remove("dormant");
+      w.classList.add(e.kind === "det" ? "det" : "modelpath");
+      $("wsub_" + v.slug).textContent = e.kind === "det" ? e.method : "prompt";
+      // Fan-in edges light green once the barrier has passed — the reduce is visible.
+      const e2 = $("we2_" + v.slug);
+      e2.classList.add("taken");
+      e2.setAttribute("opacity", "1");
+      e2.style.markerEnd = "url(#arrowG)";
+    });
+  }
+  // taken edges from previous frames stay green-ish via node done; now active frame
+  const fr = FRAMES[f];
+  fr.active.forEach(id => {
+    if (id === "fanband") { $("fanband").setAttribute("opacity", 1); $("fanbandlabel").setAttribute("opacity", 1); return; }
+    const el = $(id); if (el) { el.classList.remove("done"); el.classList.add("active"); }
+  });
+  (fr.edges || []).forEach(([eid, cls]) => {
+    const el = $(eid); if (!el) return;
+    el.classList.add("active"); if (cls) el.classList.add(cls);
+  });
+  if (fr.workers) {
+    VENUES.forEach(v => {
+      const e = EXTRACT.find(x => x.slug === v.slug);
+      const w = $("w_" + v.slug);
+      w.classList.remove("dormant","done");
+      w.classList.add("active");
+      $("we1_" + v.slug).classList.add("active"); $("we1_" + v.slug).setAttribute("opacity","1");
+      $("we2_" + v.slug).setAttribute("opacity",".6");
+      $("wsub_" + v.slug).textContent = e.kind === "det" ? e.method : "prompt";
+    });
+    $("fanband").setAttribute("opacity", 1); $("fanbandlabel").setAttribute("opacity", 1);
+    $("lbl_send").classList.add("active");
+  }
+  if (fr.title.includes("conditional edge routes")) { $("lbl_plan").classList.add("active"); $("lbl_abort").classList.add("active"); }
+  if (fr.title.includes("Send")) $("lbl_send").classList.add("active");
+
+  // log (replay all up to f)
+  const log = $("log"); log.innerHTML = "";
+  for (let i = 0; i <= f; i++) {
+    FRAMES[i].log.forEach(([cls, txt]) => {
+      const d = document.createElement("div");
+      d.className = "ln " + cls;
+      d.textContent = (i < f ? "· " : "▸ ") + txt;
+      log.appendChild(d);
+    });
+  }
+  log.scrollTop = log.scrollHeight;
+
+  // state
+  $("statejson").innerHTML = stateToJSON(fr.state);
+
+  // concept highlight
+  document.querySelectorAll(".concept").forEach(c => c.classList.remove("lit"));
+  const c = $(fr.concept); if (c) { c.classList.add("lit"); c.scrollIntoView({block:"nearest", behavior:"smooth"}); }
+
+  $("stepnote").innerHTML = `<b>Step ${f} — ${fr.title}.</b> ` + fr.note;
+  $("progress").textContent = `step ${f + 1} / ${FRAMES.length}`;
+}
+
+function gotoFrame(f) {
+  frame = Math.max(-1, Math.min(FRAMES.length - 1, f));
+  if (frame === -1) {
+    resetVisual();
+    $("log").innerHTML = "";
+    $("statejson").innerHTML = stateToJSON({period:"2026-09", backend:"none", model:"", concurrency:4, results:"[]", timings:"[]"});
+    $("stepnote").innerHTML = "Press <b>Play</b> or <b>Step</b> to replay the run. Click any node for its LangGraph role.";
+    $("progress").textContent = `step 0 / ${FRAMES.length}`;
+    document.querySelectorAll(".concept").forEach(c => c.classList.remove("lit"));
+    return;
+  }
+  applyFrame(frame);
+}
+
+function play() {
+  if (playing) { stop(); return; }
+  playing = true; $("btnPlay").textContent = "⏸ Pause";
+  const tick = () => {
+    if (!playing) return;
+    if (frame >= FRAMES.length - 1) { stop(); return; }
+    gotoFrame(frame + 1);
+    timer = setTimeout(tick, 3400 - parseInt($("speed").value, 10));
+  };
+  tick();
+}
+function stop() { playing = false; $("btnPlay").textContent = "▶ Play"; if (timer) clearTimeout(timer); }
+
+$("btnPlay").onclick = play;
+$("btnStep").onclick = () => { stop(); gotoFrame(frame + 1); };
+$("btnStepBack").onclick = () => { stop(); gotoFrame(frame - 1); };
+$("btnReset").onclick = () => { stop(); gotoFrame(-1); };
+
+/* tabs */
+const tabs = ["state","log","learn","detail"];
+tabs.forEach(t => {
+  $("tab-" + t).onclick = () => {
+    tabs.forEach(x => { $("tab-" + x).classList.toggle("on", x === t); $("pane-" + x).classList.toggle("on", x === t); });
+  };
+});
+
+/* node click → detail */
+document.querySelectorAll(".node").forEach(n => {
+  n.addEventListener("click", () => {
+    const key = n.dataset.node;
+    const d = DETAILS[key];
+    const pane = $("pane-detail");
+    if (!d) return;
+    $("detail").innerHTML =
+      `<h3>${key.split(":")[0]}${key.includes(":") ? " · " + key.split(":")[1] : ""}</h3>` +
+      `<div class="row"><span class="k2">role:</span> ${d.role}</div>` +
+      `<div class="row"><span class="k2">function:</span> <code>${d.fn}</code></div>` +
+      `<pre>${d.body.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>`;
+    tabs.forEach(x => { $("tab-" + x).classList.toggle("on", x === "detail"); $("pane-" + x).classList.toggle("on", x === "detail"); });
+  });
+});
+
+gotoFrame(-1);
+</script>
+</body>
+</html>

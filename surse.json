@@ -1,0 +1,154 @@
+{
+  "_meta": {
+    "discovered": "2026-08-14",
+    "note": "Calendar URLs verified live on this date. 'confidence' reflects how directly the programme data was observed. Re-run discovery quarterly or whenever a fetch starts failing.",
+    "ticket_domain_policy": {
+      "allow": ["tickets.operanb.ro", "bilete.comedie.ro", "bilete.circulmetropolitan.ro"],
+      "reason": "institution-owned ticketing subdomains are official sources",
+      "deny": ["bilete.ro", "iabilet.ro", "entertix.ro", "facebook.com", "eventim.ro"]
+    }
+  },
+  "institutions": [
+    {
+      "slug": "tnb",
+      "name": "Teatrul Naţional Bucureşti",
+      "home": "https://www.tnb.ro",
+      "calendar_url": "https://www.tnb.ro/ro/calendar?year={YYYY}&month={M}",
+      "alt_urls": ["https://www.tnb.ro/ro/calendar/", "https://www.tnb.ro/ro/repertoriu-curent/"],
+      "month_param": "year/month",
+      "strategy": "browser",
+      "extract": "fullcalendar",
+      "confidence": "high",
+      "confirmed_2026_08_14": "CLIENT-SIDE, proven both ways: curl of the page yields 0 occurrences of '2026-09', while the browser-rendered DOM (operator-supplied .mhtml) yields 60. So 'browser' is correct and Playwright is genuinely required here — the only venue of the 12 for which that is true. URL uses a BARE month (month=9, not 09), hence {M}.",
+      "extractor_notes": "Renders with the FullCalendar library. Events carry NO date of their own — they are positioned by column under a <thead> of data-date cells, with empty leading cells collapsed into <td rowspan=5> spacers, so column index must track rowspan occupancy. data-date is also present on all ~42 cells including empty ones; reading it naively invents a show per calendar square. Verified 81 rows for September 2026 against a screenshot: 5 shows on 05.09, 4 on 06.09, matching exactly.",
+      "notes": "Largest venue in the set; worth getting right."
+    },
+    {
+      "slug": "bulandra",
+      "name": "Teatrul Bulandra",
+      "home": "https://www.bulandra.ro",
+      "calendar_url": "https://www.bulandra.ro/program/",
+      "alt_urls": ["https://www.bulandra.ro/repertoriu-curent/", "https://www.bulandra.ro/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "high",
+      "corrected_2026_08_14": "WAS WRONG — pointed at the homepage, which serves stale April listings, so extraction returned 0 while the real page was full. /program/ is linked directly from the homepage HTML; the original discovery pass used a markdown renderer that silently dropped <a href> elements and I read that silence as 'no calendar page exists'. Lossy extraction is not evidence of absence. Discovery now reads raw HTML (see the `discover` stage).",
+      "notes": "Programme page confirmed by the operator as covering ~5 Sept to 4 Oct. robots.txt blocks some automated fetchers; curl with a normal UA works."
+    },
+    {
+      "slug": "comedie",
+      "name": "Teatrul de Comedie",
+      "home": "https://comedie.ro",
+      "calendar_url": "https://comedie.ro/calendar/",
+      "alt_urls": ["https://bilete.comedie.ro/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "medium",
+      "notes": "WordPress + WPML 4.6.9. Calendar path confirmed; day-level content not yet inspected."
+    },
+    {
+      "slug": "opereta",
+      "name": "Teatrul Naţional de Operetă şi Musical 'Ion Dacian'",
+      "home": "https://www.opereta.ro",
+      "calendar_url": "https://www.opereta.ro/calendar/",
+      "alt_urls": ["https://www.opereta.ro/spectacole/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "medium",
+      "notes": "Homepage showed '17 oct' for Cantafabule, so October data exists somewhere. Ticketing routed to ticketstore.ro (third party — do not treat as source)."
+    },
+    {
+      "slug": "onb",
+      "name": "Opera Naţională Bucureşti",
+      "home": "https://operanb.ro",
+      "calendar_url": "https://operanb.ro/calendar/?luna={MM}&anul={YYYY}",
+      "alt_urls": ["https://operanb.ro/spectacol"],
+      "month_param": "luna/anul",
+      "strategy": "html",
+      "confidence": "high",
+      "notes": "Best-behaved site of the 12. Server-rendered, month-parameterised. 4 Oct 2026 CONFIRMED: 'NUNTA LUI FIGARO' 18:30, category Operă, marked SOLD OUT. Sala not shown in the day cell — follow the show link."
+    },
+    {
+      "slug": "circ",
+      "name": "Circul Metropolitan Bucureşti",
+      "home": "https://circulmetropolitan.ro",
+      "calendar_url": "https://circulmetropolitan.ro/evenimente/",
+      "alt_urls": ["https://circulmetropolitan.ro/spectacole-2/", "https://bilete.circulmetropolitan.ro/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "low",
+      "insecure": true,
+      "verified_2026_08_14": "bilete.circulmetropolitan.ro serves an EXPIRED TLS certificate (curl exit 60). Demoted from primary to last-resort alt. `insecure: true` is scoped to this institution only — it skips cert verification for these hosts and nothing else. Rows sourced here are flagged TLS UNVERIFIED in the output. Remove the flag once the venue renews its certificate.",
+      "notes": "No dated calendar on the main site — only show portfolio. The dated schedule lives on the institution's own ticketing subdomain. This is the case that broke the original prompt's 'no ticket sites' rule."
+    },
+    {
+      "slug": "nottara",
+      "name": "Teatrul Nottara",
+      "home": "https://nottara.ro",
+      "calendar_url": "https://nottara.ro/program/",
+      "alt_urls": ["https://nottara.ro/spectacole/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "high",
+      "notes": "WordPress 7.0.4. Server-rendered with sala names (Sala George Constantin / Sala Horia Lovinescu). Date formats: 'MIE 17 08 19:00', '12 Sep - 19:30'. As of 2026-08-14 published through 27 Sept only. On-page filters (azi / 7 zile / 30 zile / toată perioada) are not URL params — check whether 'toată perioada' is reachable via query string."
+    },
+    {
+      "slug": "odeon",
+      "name": "Teatrul Odeon",
+      "home": "https://teatrul-odeon.ro",
+      "calendar_url": "https://teatrul-odeon.ro/programul-teatrului-odeon-pe-zile/",
+      "alt_urls": ["https://teatrul-odeon.ro/stagiune/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "high",
+      "notes": "WordPress + WPML. Day-by-day programme page, server-rendered. Format '19 septembrie 2026'. As of 2026-08-14 published through 27 Sept."
+    },
+    {
+      "slug": "act",
+      "name": "Teatrul ACT",
+      "home": "https://www.teatrulact.ro",
+      "calendar_url": "https://www.teatrulact.ro/program/",
+      "alt_urls": ["https://www.teatrulact.ro/event_categories/spectacole/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "medium",
+      "notes": "WordPress. The /event_categories/ path suggests The Events Calendar plugin, but /wp-json/tribe/events/v1/events returned 404 — REST API disabled or a different plugin. Do not count on a JSON endpoint."
+    },
+    {
+      "slug": "metropolis",
+      "name": "Teatrul Metropolis",
+      "home": "https://teatrulmetropolis.ro",
+      "calendar_url": "https://teatrulmetropolis.ro/program/",
+      "alt_urls": [],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "high",
+      "notes": "WordPress 7.0.4. Server-rendered. Formats: 'Marți 8 09', '12&13 septembrie, 19:30' — note the multi-date-in-one-string case, which naive parsing will drop. As of 2026-08-14 published through 30 Sept."
+    },
+    {
+      "slug": "masca",
+      "name": "Teatrul Masca",
+      "home": "https://www.masca.ro",
+      "calendar_url": "https://www.masca.ro/teatru/calendar/",
+      "alt_urls": ["https://www.masca.ro/teatru/spectacolele-stagiunii/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "low",
+      "enabled": false,
+      "disabled_reason": "calendar prea greu de parsat",
+      "disabled_2026_08_14": "Operator decision. /teatru/calendar/ IS the right page, but its markup does not yield dates to this pipeline (snapshot: 130 KB raw -> 1.4 KB text, 0 date matches). /teatru/spectacolele-stagiunii/ lists productions without dates, and individual show pages (/teatru/<slug>/) carry only duration plus outbound links to myStage and Bilet.ro — third-party ticket sites, which policy excludes. So no in-policy source exposes Masca's dates in parseable form. Kept in the registry (not deleted) so the completeness table still accounts for all 12 institutions; set enabled:true to reinstate.",
+      "notes": "WordPress under /teatru/. Revisit if the venue republishes its calendar in a structured form."
+    },
+    {
+      "slug": "grivita53",
+      "name": "Grivița 53",
+      "home": "https://www.grivita53.ro",
+      "calendar_url": "https://www.grivita53.ro/repertoriu",
+      "alt_urls": ["https://www.grivita53.ro/"],
+      "month_param": null,
+      "strategy": "html",
+      "confidence": "medium",
+      "notes": "Next.js (generator ADACITY.RO), not WordPress. Calendar renders on the homepage; show pages at /spectacol/<slug>. Compact date format '27AUG'. As of 2026-08-14 published through 14 Sept. If the homepage HTML proves to be a hydration shell, pull __NEXT_DATA__ from the page rather than escalating to a browser."
+    }
+  ]
+}
