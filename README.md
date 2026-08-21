@@ -137,3 +137,58 @@ python3 teatre_graph.py --period 2026-09 --resume       # continue a crashed run
 
 `teatre_graph_viz.html` (checked in) is a static rendering of the graph
 topology — open it in a browser to see nodes/edges at a glance.
+
+## Live run observatory: `teatre_graph_viz_v2.html`
+
+This is a **live run observatory** for the same LangGraph pipeline. It is
+served by `teatre_viz_server.py`, which spawns the real pipeline as a child
+process and streams its lifecycle events to the page — nothing is a replay.
+It is not a static page you just double-click; it needs the server running.
+
+### Starting the server
+
+```bash
+python3 teatre_viz_server.py          # http://127.0.0.1:8123
+python3 teatre_viz_server.py 9000     # custom port
+```
+
+Then open <code>http://127.0.0.1:8123/</code>. `Ctrl+C` aborts the active run
+and exits. (Opened directly from disk, the page instead targets the server on
+`127.0.0.1:8123`, overridable with `?port=NNNN` — same result, but going
+through the server's `/` is simplest.)
+
+### Running the pipeline
+
+Pick a **Year** and **Luna** (the month / period), then a **Backend**:
+
+| Backend | Needs |
+|---|---|
+| `none` | nothing — dry run, prompts written, no model |
+| `ollama` | local Ollama at `OLLAMA_HOST` (default 127.0.0.1:11434) |
+| `cerebras` | `CEREBRAS_API_KEY` |
+| `mimo` | `OPENROUTER_API_KEY` (MiMo-V2.5 via OpenRouter) |
+
+**Model** overrides the per-backend default. Tick **resume interrupted run**
+to continue a checkpointed run from the last completing step. Only one run at
+a time.
+
+### The tabs
+
+| Tab | Shows |
+|---|---|
+| Run | current run: period, backend, model, nodes & workers done |
+| State | compact JSON live state of the run |
+| Event log | raw lifecycle events + the process's own log, colorized |
+| Node detail | click a graph node to see what it does |
+| Events | the **verified** events for the current month — date, hour, theatre, names link to the source URL |
+| Help | in-page version of these instructions |
+
+The **Events** tab reads `rezultate_graph/<period>.verified.json` after the
+run's `verify` + `render` stages finish.
+
+### Notes
+
+`verify` is **never** a model: every row's quoted source must occur literally
+in the snapshot, dates outside the period are dropped, and invented links are
+replaced. Output is isolated to `rezultate_graph/` + `snapshots_graph/` so a
+graph run can never clobber a `teatre.py` run.
